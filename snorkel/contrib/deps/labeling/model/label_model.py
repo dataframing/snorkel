@@ -98,6 +98,10 @@ class DependencyAwareLabelModel(LabelModel):
         self,
         L_train: np.ndarray,
         Y_dev: Optional[np.ndarray] = None,
+        learn_deps: Optional[bool] = True,
+        thresh_mult: Optional[float] = 0.5,
+        gamma: Optional[float] = 1e-8,
+        lam: Optional[float] = 0.1,
         deps: Optional[List[Tuple[int, int]]] = None,
         class_balance: Optional[List[float]] = None,
         **kwargs: Any,
@@ -112,6 +116,14 @@ class DependencyAwareLabelModel(LabelModel):
             An [n,m] matrix with values in {-1,0,1,...,k-1}
         Y_dev
             Gold labels for dev set for estimating class_balance, by default None
+        learn_deps
+            Whether to learn dependencies, by default True
+        thresh_mult
+            Threshold multiplier for selecting thresh_mult * max off diagonal entry from sparse matrix
+        gamma
+            Parameter in objective function related to sparsity
+        lam
+            Parameter in objective function related to sparsity and low rank
         deps
             Optional list of pairs of correlated LF indices.
         class_balance
@@ -132,6 +144,7 @@ class DependencyAwareLabelModel(LabelModel):
         >>> label_model.fit_with_deps(L, deps=[(0, 2)])  # doctest: +SKIP
         >>> label_model.fit_with_deps(L, deps=[(0, 2)], Y_dev=Y_dev)  # doctest: +SKIP
         >>> label_model.fit_with_deps(L, deps=[(0, 2)], class_balance=[0.7, 0.3])  # doctest: +SKIP
+        >>> label_model.fit_with_deps(L, learn_deps=True)  # doctest: +SKIP
         """
         self.deps = deps
         self.fit(L_train, Y_dev, class_balance, **kwargs)
