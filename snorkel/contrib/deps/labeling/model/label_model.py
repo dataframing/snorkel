@@ -1,56 +1,98 @@
 import logging
 import random
 from functools import partial
+from itertools import chain, product
 from typing import Any, List, Optional, Tuple
 
-import cvxpy as cp
 import numpy as np
 import scipy as sp
 import torch
 
 from snorkel.labeling.analysis import LFAnalysis
-from snorkel.labeling.model.label_model import LabelModel, TrainConfig
+from snorkel.labeling.model.label_model import CliqueData, LabelModel, TrainConfig
 from snorkel.utils.config_utils import merge_config
 
 
 class DependencyAwareLabelModel(LabelModel):
-    """A LabelModel that handles dependencies and learn associated weights to assign training labels."""
+    """A LabelModel that handles dependencies and learn associated weights to assign training labels.
 
-    def _loss_inv_mu(self, l2: float = 0) -> torch.Tensor:
-        loss_1 = torch.norm(self.Q - self.mu @ self.P @ self.mu.t()) ** 2
-        loss_2 = torch.norm(torch.sum(self.mu @ self.P, 1) - torch.diag(self.O)) ** 2
-        return loss_1 + loss_2 + self.loss_l2(l2=l2)
+    The model is based on the matrix factorization approach detailed here: https://arxiv.org/pdf/1810.02840.pdf,
+    and uses Robust PCA as an intermediate step as shown here: https://arxiv.org/pdf/1903.05844.pdf.
+    """
 
-    def _robust_pca_Q(self, L: np.ndarray) -> np.ndarray:
-        N = float(np.shape(L)[0])
-        M = np.shape(L)[1]
-        sigma_O = (np.dot(L.T, L)) / (N - 1) - np.outer(
-            np.mean(L, axis=0), np.mean(L, axis=0)
-        )
-        O_root = np.real(sp.linalg.sqrtm(sigma_O))
+    def _get_augmented_label_matrix(self, L: np.ndarray) -> np.ndarray:
+        """Create augmented version of label matrix.
 
-        L_cvx = cp.Variable([M, M], PSD=True)
-        S = cp.Variable([M, M], PSD=True)
-        R = cp.Variable([M, M], PSD=True)
-        lam = 1 / np.sqrt(M)
-        gamma = 1e-8
+        In augmented version, each column is an indicator
+        for whether a certain source or clique of sources voted in a certain
+        pattern.
 
-        objective = cp.Minimize(
-            0.5 * (cp.norm(R * O_root, "fro") ** 2)
-            - cp.trace(R)
-            + lam * (gamma * cp.pnorm(S, 1) + cp.norm(L_cvx, "nuc"))
-        )
-        constraints = [R == S - L_cvx, L_cvx >> 0]
+        Parameters
+        ----------
+        L
+            An [n,m] label matrix with values in {0,1,...,k}
 
-        prob = cp.Problem(objective, constraints)
-        prob.solve(verbose=False)
-        U, s, V = np.linalg.svd(L_cvx.value)
-        Z = np.sqrt(s[: self.cardinality]) * U[:, : self.cardinality]
-        O = self.O.numpy()
-        I_k = np.eye(self.cardinality)
-        return O @ Z @ np.linalg.inv(I_k + Z.T @ O @ Z) @ Z.T @ O
+        Returns
+        -------
+        np.ndarray
+            An [n,m*k] dense matrix with values in {0,1}
+        """
+        L_ind = super()._get_augmented_label_matrix(L)
 
-    def _fit_loss(self, loss_fn):
+        # Get the higher-order clique statistics based on the clique tree
+        # First, iterate over the maximal cliques (nodes of c_tree) and
+        # separator sets (edges of c_tree)
+        if self.higher_order:
+            L_aug = np.copy(L_ind)
+            for item in chain(self.c_tree.nodes(), self.c_tree.edges()):
+                if isinstance(item, int):
+                    C = self.c_tree.node[item]
+                    C_type = "node"
+                elif isinstance(item, tuple):
+                    C = self.c_tree[item[0]][item[1]]
+                    C_type = "edge"
+                else:
+                    raise ValueError(item)
+                members = list(C["members"])
+
+                nc = len(members)
+
+                # If a unary maximal clique, just store its existing index
+                if nc == 1:
+                    C["start_index"] = members[0] * self.cardinality
+                    C["end_index"] = (members[0] + 1) * self.cardinality
+
+                # Else add one column for each possible value
+                else:
+                    L_C = np.ones((self.n, self.cardinality ** nc))
+                    for i, vals in enumerate(
+                        product(range(self.cardinality), repeat=nc)
+                    ):
+                        for j, v in enumerate(vals):
+                            L_C[:, i] *= L_ind[:, members[j] * self.cardinality + v]
+
+                    # Add to L_aug and store the indices
+                    if L_aug is not None:
+                        C["start_index"] = L_aug.shape[1]
+                        C["end_index"] = L_aug.shape[1] + L_C.shape[1]
+                        L_aug = np.hstack([L_aug, L_C])
+                    else:
+                        C["start_index"] = 0
+                        C["end_index"] = L_C.shape[1]
+                        L_aug = L_C
+
+                    # Add to self.c_data as well
+                    id = tuple(members) if len(members) > 1 else members[0]
+                    self.c_data[id] = CliqueData(
+                        start_index=C["start_index"],
+                        end_index=C["end_index"],
+                        max_cliques=set([item]) if C_type == "node" else set(item),
+                    )
+            return L_aug
+        else:
+            return L_ind
+
+    def _fit(self):
         # Restore model if necessary
         start_iteration = 0
 
@@ -139,7 +181,7 @@ class DependencyAwareLabelModel(LabelModel):
 
         self._set_constants(L_shift)
         self._set_class_balance(class_balance, Y_dev)
-        self._set_dependencies(deps or [])
+        self._set_structure(deps)
         lf_analysis = LFAnalysis(L_train)
         self.coverage = lf_analysis.lf_coverages()
 
@@ -162,11 +204,7 @@ class DependencyAwareLabelModel(LabelModel):
         self._set_optimizer()
         self._set_lr_scheduler()
 
-        if self.higher_order:
-            self.Q = self._robust_pca_Q(self._get_augmented_label_matrix(L_shift))
-            self._fit_loss(partial(self._loss_inv_mu, l2=self.train_config.l2))
-        else:
-            self._fit_loss(partial(self._loss_mu, l2=self.train_config.l2))
+        self._fit()
 
         # Post-processing operations on mu
         self._clamp_params()
