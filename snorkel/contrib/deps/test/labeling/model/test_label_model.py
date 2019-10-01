@@ -79,8 +79,9 @@ class LabelModelTest(unittest.TestCase):
         label_model.train_config = TrainConfig()  # type: ignore
         L_shift = L + 1
         label_model._set_constants(L_shift)
+        label_model.deps = deps
+        label_model._set_structure()
         label_model._set_class_balance(class_balance, None)
-        label_model._set_structure(deps)
         label_model._generate_O(L_shift)
         label_model._init_params()
         return label_model
@@ -115,7 +116,8 @@ class LabelModelTest(unittest.TestCase):
         lm = DependencyAwareLabelModel(cardinality=3, verbose=False)
         lm._set_constants(L_shift)
         lm._set_class_balance(None, None)
-        lm._set_structure([(0, 2)])
+        lm.deps = [(0, 2)]
+        lm._set_structure()
         L_aug = lm._get_augmented_label_matrix(L_shift)
         expected_L = np.array(
             [
@@ -128,7 +130,6 @@ class LabelModelTest(unittest.TestCase):
         np.testing.assert_array_almost_equal(L_aug, expected_L)
 
         # Check the clique entries
-        print(lm.c_tree.node[0])
         # Size 2 clique 0
         self.assertSetEqual(lm.c_tree.node[0]["members"], frozenset({0, 2}))
         self.assertEqual(lm.c_tree.node[0]["start_index"], 9)

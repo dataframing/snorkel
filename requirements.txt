@@ -38,9 +38,6 @@ dask[complete]>=2.1.0,<3.0.0
 # Serialization
 dill>=0.3.0,<0.4.0
 
-# Dependency Learning
-cvxpy>=1.0.25,<2.0.0
-
 #### DEV TOOLS
 
 black>=19.3b0,<20.0

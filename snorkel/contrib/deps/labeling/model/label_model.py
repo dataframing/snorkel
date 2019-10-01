@@ -1,16 +1,10 @@
-import logging
-import random
-from functools import partial
 from itertools import chain, product
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
-import scipy as sp
-import torch
 
-from snorkel.labeling.analysis import LFAnalysis
-from snorkel.labeling.model.label_model import CliqueData, LabelModel, TrainConfig
-from snorkel.utils.config_utils import merge_config
+from snorkel.labeling.model.graph_utils import get_clique_tree
+from snorkel.labeling.model.label_model import CliqueData, LabelModel
 
 
 class DependencyAwareLabelModel(LabelModel):
@@ -92,38 +86,13 @@ class DependencyAwareLabelModel(LabelModel):
         else:
             return L_ind
 
-    def _fit(self):
-        # Restore model if necessary
-        start_iteration = 0
-
-        # Train the model
-        metrics_hist = {}  # The most recently seen value for all metrics
-        for epoch in range(start_iteration, self.train_config.n_epochs):
-            self.running_loss = 0.0
-            self.running_examples = 0
-
-            # Zero the parameter gradients
-            self.optimizer.zero_grad()
-
-            # Forward pass to calculate the average loss per example
-            loss = self._loss_mu(l2=self.train_config.l2)
-            if torch.isnan(loss):
-                msg = "Loss is NaN. Consider reducing learning rate."
-                raise Exception(msg)
-
-            # Backward pass to calculate gradients
-            # Loss is an average loss per example
-            loss.backward()
-
-            # Perform optimizer step
-            self.optimizer.step()
-
-            # Calculate metrics, log, and checkpoint as necessary
-            metrics_dict = self._execute_logging(loss)
-            metrics_hist.update(metrics_dict)
-
-            # Update learning rate
-            self._update_lr_scheduler(epoch)
+    def _set_structure(self) -> None:
+        nodes = range(self.m)
+        self.c_tree = get_clique_tree(nodes, self.deps)
+        if len(self.deps) > 0:
+            self.higher_order = True
+        else:
+            self.higher_order = False
 
     def fit_with_deps(
         self,
@@ -164,55 +133,5 @@ class DependencyAwareLabelModel(LabelModel):
         >>> label_model.fit_with_deps(L, deps=[(0, 2)], Y_dev=Y_dev)  # doctest: +SKIP
         >>> label_model.fit_with_deps(L, deps=[(0, 2)], class_balance=[0.7, 0.3])  # doctest: +SKIP
         """
-        # Set random seed
-        self.train_config: TrainConfig = merge_config(  # type:ignore
-            TrainConfig(), kwargs  # type:ignore
-        )
-        # Update base config so that it includes all parameters
-        random.seed(self.train_config.seed)
-        np.random.seed(self.train_config.seed)
-        torch.manual_seed(self.train_config.seed)
-
-        L_shift = L_train + 1  # convert to {0, 1, ..., k}
-        if L_shift.max() > self.cardinality:
-            raise ValueError(
-                f"L_train has cardinality {L_shift.max()}, cardinality={self.cardinality} passed in."
-            )
-
-        self._set_constants(L_shift)
-        self._set_class_balance(class_balance, Y_dev)
-        self._set_structure(deps)
-        lf_analysis = LFAnalysis(L_train)
-        self.coverage = lf_analysis.lf_coverages()
-
-        # Compute O and initialize params
-        if self.config.verbose:  # pragma: no cover
-            logging.info("Computing O...")
-        self._generate_O(L_shift)
-        self._init_params()
-
-        # Set model to train mode
-        self.train()
-
-        # Move model to GPU
-        if self.config.verbose and self.config.device != "cpu":  # pragma: no cover
-            logging.info("Using GPU...")
-        self.to(self.config.device)
-
-        # Set training components
-        self._set_logger()
-        self._set_optimizer()
-        self._set_lr_scheduler()
-
-        self._fit()
-
-        # Post-processing operations on mu
-        self._clamp_params()
-        self._break_col_permutation_symmetry()
-
-        # Return model to eval mode
-        self.eval()
-
-        # Print confusion matrix if applicable
-        if self.config.verbose:  # pragma: no cover
-            logging.info("Finished Training")
+        self.deps = deps
+        self.fit(L_train, Y_dev, class_balance, **kwargs)

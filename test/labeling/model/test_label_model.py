@@ -20,7 +20,7 @@ class LabelModelTest(unittest.TestCase):
         label_model.train_config = TrainConfig()  # type: ignore
         L_aug = L + 1
         label_model._set_constants(L_aug)
-        label_model._set_structure([])
+        label_model._set_structure()
         label_model._generate_O(L_aug)
         label_model._build_mask()
         label_model._get_augmented_label_matrix(L_aug)
@@ -121,7 +121,7 @@ class LabelModelTest(unittest.TestCase):
         L_shift = L + 1
         lm = LabelModel(cardinality=k, verbose=False)
         lm._set_constants(L_shift)
-        lm._set_structure([])
+        lm._set_structure()
 
         # Finally, check the clique entries
         # Singleton clique 1

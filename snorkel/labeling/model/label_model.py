@@ -570,15 +570,10 @@ class LabelModel(nn.Module):
             raise ValueError(f"L_train should have at least 3 labeling functions")
         self.t = 1
 
-    def _set_structure(self, deps: Optional[List[Tuple[int, int]]] = None) -> None:
-        deps = deps or []
+    def _set_structure(self) -> None:
         nodes = range(self.m)
-        self.c_tree = get_clique_tree(nodes, deps)
-        self.deps = deps
-        if len(deps) > 0:
-            self.higher_order = True
-        else:
-            self.higher_order = False
+        self.c_tree = get_clique_tree(nodes, [])
+        self.higher_order = False
 
     def _execute_logging(self, loss: torch.Tensor) -> Metrics:
         self.eval()
@@ -846,6 +841,8 @@ class LabelModel(nn.Module):
         >>> label_model.fit(L, Y_dev=Y_dev)
         >>> label_model.fit(L, class_balance=[0.7, 0.3])
         """
+        self._set_constants(L_train)
+        self._set_structure()
         # Set random seed
         self.train_config: TrainConfig = merge_config(  # type:ignore
             TrainConfig(), kwargs  # type:ignore
@@ -861,9 +858,7 @@ class LabelModel(nn.Module):
                 f"L_train has cardinality {L_shift.max()}, cardinality={self.cardinality} passed in."
             )
 
-        self._set_constants(L_shift)
         self._set_class_balance(class_balance, Y_dev)
-        self._set_structure()
         lf_analysis = LFAnalysis(L_train)
         self.coverage = lf_analysis.lf_coverages()
 
