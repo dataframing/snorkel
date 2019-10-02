@@ -206,13 +206,13 @@ class DependencyLearnerTest(unittest.TestCase):
 
     def test_deps_from_inverse(self):
         thresh = 0.5
-        J = np.array([[1.0, 0.75, 0.25], [0.95, 0.3, 0.5]])
+        J = np.array([[0.25, 0.75, 0.5], [0.75, 0.25, 0.65], [0.5, 0.65, 0.25]])
         dep_learner = DependencyLearner()
         idx = dep_learner._get_deps_from_inverse_sig(J, thresh)
-        self.assertEqual(set(idx), set([(0, 0), (0, 1), (1, 0)]))
+        self.assertEqual(set(idx), set([(0, 1), (1, 2)]))
 
     def test_no_deps(self):
-        L = np.array([[1, 1, 1], [-1, 0, 1], [-1, -1, 0]])
+        L = np.array([[1, -1, 1], [-1, 0, 1], [-1, -1, 0]])
         dep_learner = DependencyLearner()
         with self.assertRaisesRegex(
             ValueError, "Dependency structure is fully connected"
