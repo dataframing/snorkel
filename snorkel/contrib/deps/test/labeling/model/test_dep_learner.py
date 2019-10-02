@@ -184,7 +184,7 @@ class DepsDataGenerator(object):
 class DependencyLearnerTest(unittest.TestCase):
     def test_cardinality(self):
         dep_learner = DependencyLearner()
-        L = np.array([[-1, 0, 2], [1, 2, 3], [-1, -1, 0]])
+        L = np.array([[-1, 0], [1, 2]])
         with self.assertRaisesRegex(
             ValueError, "Does not match DependencyLearner cardinality"
         ):
