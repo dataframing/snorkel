@@ -1,3 +1,4 @@
+import itertools
 import warnings
 from typing import List, Optional, Tuple
 
@@ -46,13 +47,9 @@ class DependencyLearner(object):
 
         More information on singleton separator assumption in [AAAI'19](https://arxiv.org/pdf/1810.02840.pdf) and [ICML'19](https://arxiv.org/pdf/1903.05844.pdf) papers.
         """
-        # remove duplicated pairs
-        deps_singleton = []
-        for i, j in deps:
-            if i < j:
-                deps_singleton.append((i, j))
 
         # add edges to convert chain deps to cluster deps
+        deps_singleton = deps.copy()
         for i, j in deps:
             for k, l in deps:
                 if (i == k) and (j < l):
@@ -63,8 +60,8 @@ class DependencyLearner(object):
                     deps_singleton.append((i, l))
                 if (i == l) and (j < k):
                     deps_singleton.append((j, k))
-        all_deps = list(set(deps_singleton))
 
+        all_deps = list(set(deps_singleton))
         if len(all_deps) == sp.special.comb(M, 2):
             raise ValueError(
                 "Dependency structure is fully connected. Rerun with higher thresh_mult."
@@ -74,10 +71,14 @@ class DependencyLearner(object):
     def _get_deps_from_inverse_sig(
         self, J: np.ndarray, thresh: float
     ) -> List[Tuple[int, int]]:
-        """Select values larger than thresh in J as dependent LF indices."""
+        """
+        Select unique dependent LF indices using values greater than thresh in J.
+
+        NOTE: Assumes J is symmetric and returns deps (i,j) s.t. i < j.
+        """
         deps = []
-        for i in range(J.shape[0]):
-            for j in range(J.shape[1]):
+        for j in range(J.shape[0]):
+            for i in range(j):
                 if abs(J[i, j]) > thresh:
                     deps.append((i, j))
         return deps
@@ -135,24 +136,27 @@ class DependencyLearner(object):
 
         # calculate agreement-disagreement rates based on random class splits
         L_shift = np.copy(L)
-        split_list = np.random.choice(
-            range(1, self.cardinality),
-            size=np.int(np.log2(self.cardinality)),
-            replace=False,
-        )
-        for class_thresh in split_list:
+        class_permutations = list(itertools.permutations(range(self.cardinality)))
+
+        for ordering in class_permutations:
+            split_idx = np.random.choice(
+                [np.floor(self.cardinality / 2), np.ceil(self.cardinality / 2)]
+            ).astype(int)
             L_shift[L_shift == -1] = self.cardinality + 1
-            L_shift[L_shift < class_thresh] = -1
+            for class_thresh in ordering[0:split_idx]:
+                L_shift[L_shift == class_thresh] = -1
+
             L_shift[L_shift == self.cardinality + 1] = 0
-            L_shift[L_shift >= class_thresh] = 1
+            for class_thresh in ordering[split_idx : self.cardinality]:
+                L_shift[L_shift == class_thresh] = 1
+
             O_all += (np.dot(L_shift.T, L_shift)) / (N - 1) - np.outer(
                 np.mean(L_shift, axis=0), np.mean(L_shift, axis=0)
             )
-        sigma_O = O_all / float(len(split_list))
+        sigma_O = O_all / float(len(class_permutations))
 
         # set variables for cvxpy
-        O = 1 / 2 * (sigma_O + sigma_O.T)
-        O_root = np.real(sp.linalg.sqrtm(O))
+        O_root = np.real(sp.linalg.sqrtm(sigma_O))
         L_cvx = cp.Variable([M, M], PSD=True)  # low-rank matrix
         S = cp.Variable([M, M], PSD=True)  # sparse matrix
         R = cp.Variable([M, M], PSD=True)  # S-L matrix
