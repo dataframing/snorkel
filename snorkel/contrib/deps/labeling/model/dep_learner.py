@@ -14,7 +14,7 @@ class DependencyLearner(object):
     It is based on the approach in
     [Learning Dependency Structures for Weak Supervision Models]
     (https://arxiv.org/pdf/1903.05844.pdf), published in ICML'19.
-    In this approach, we use robust principal component analysis (rPCA)
+    In this approach, we use a robust principal component analysis (rPCA)
     based algorithm to decompose the inverse covariance matrix into a sparse
     component that encodes the dependency structure and a low rank component
     due to marginalizing over the latent true label variable.
@@ -106,11 +106,11 @@ class DependencyLearner(object):
         L
             An [n,m] matrix with values in {-1,0,1,...,k-1}
         thresh_mult
-            Threshold multiplier for selecting thresh_mult * max off diagonal entry from sparse matrix
+            Threshold multiplier for selecting thresh_mult * max off-diagonal entry from sparse matrix
         gamma
-            Parameter in objective function related to sparsity
+            Parameter in objective function related to sparsity (higher value weights sparsity more)
         lam
-            Parameter in objective function related to sparsity and low rank
+            Parameter in objective function related to sparsity and low rank (higher value weights sparsity and low-rank more)
         verbose
             Whether solver is verbose
 
