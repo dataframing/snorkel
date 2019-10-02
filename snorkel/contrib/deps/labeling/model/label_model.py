@@ -10,8 +10,9 @@ from snorkel.labeling.model.label_model import CliqueData, LabelModel
 class DependencyAwareLabelModel(LabelModel):
     """A LabelModel that handles dependencies and learn associated weights to assign training labels.
 
-    The model is based on the matrix factorization approach detailed here: https://arxiv.org/pdf/1810.02840.pdf,
-    and uses Robust PCA as an intermediate step as shown here: https://arxiv.org/pdf/1903.05844.pdf.
+    The model factorizes the inverser of a larger covariance matrix (O), involving outputs of
+    cliques of dependent LFs, to learn weights for both individual LFs and combinations of dependent
+    LFs.
     """
 
     def _get_augmented_label_matrix(self, L: np.ndarray) -> np.ndarray:
